@@ -1,4 +1,4 @@
-# IPTV M3U Playlist Aggregator & FTP Uploader
+# iptv.org-playlist-by-country-filter-m3u-ftp-uploader
 
 An automated PowerShell script that fetches country-specific M3U playlists from the `iptv-org` repository, consolidates the entries, sorts them by country name, cleans up the group metadata (`group-title`), and automatically uploads the final playlist to an FTP server.
 
