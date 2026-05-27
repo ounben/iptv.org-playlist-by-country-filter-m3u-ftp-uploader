@@ -1,17 +1,17 @@
 import re
+import urllib.request
+import ftplib
 from io import BytesIO
-from ftplib import FTP
-import requests
 
 # --- CONFIG ---
-FTP_SERVER   = "server.com"  # Nur Domain oder IP, ohne ftp://
+FTP_SERVER   = "server.com"
 FTP_USER     = "ftpuser"
 FTP_PASSWORD = "passwortn"
 DOMAIN_URL   = "https://webseite.com/m3u"
 FILE_NAME    = "arab_tv.m3u"
 # --------------
 
-COUNTRIES = {
+countries = {
     "dz": "Algerien", "tn": "Tunesien", "eg": "Aegypten", "ma": "Marokko",
     "ly": "Libyen", "sd": "Sudan", "sy": "Syrien", "lb": "Libanon",
     "jo": "Jordanien", "iq": "Irak", "kw": "Kuwait", "sa": "Saudi-Arabien",
@@ -22,72 +22,75 @@ COUNTRIES = {
 
 print("Erstelle IPTV-Liste im Speicher (alphabetisch sortiert)...")
 
-# M3U im Arbeitsspeicher via Listen-Akkumulation aufbauen
 m3u_lines = ["#EXTM3U"]
 
 # Sortierung nach echten Ländernamen (A-Z)
-sorted_countries = sorted(COUNTRIES.items(), key=lambda item: item[1])
+sorted_country_codes = sorted(countries.keys(), key=lambda k: countries[k])
 
-for code, land in sorted_countries:
-    url = f"https://iptv-org.github.io/iptv/countries/{code.lower()}.m3u"
+for code in sorted_country_codes:
+    land = countries[code]
+    url = f"https://iptv-org.github.io/iptv/countries/{code.m3u}"
     
     try:
-        response = requests.get(url, timeout=10)
-        if response.status_code != 200:
-            continue
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            content = response.read().decode('utf-8')
+            lines = content.splitlines()
             
-        content = response.text
-        lines = content.splitlines()
-        
-        for i in range(len(lines)):
-            line = lines[i].strip()
-            
-            if line.startswith("#EXTINF:"):
-                # Entfernt group-title="..." und normalisiert Whitespaces
-                current_line = re.sub(r'group-title="[^"]*"', '', line)
-                current_line = re.sub(r'\s+', ' ', current_line)
-                
-                # RegEx extrahiert die ID/Attribute und den Sendernamen am Ende nach dem letzten Komma vor dem Namen
-                match = re.match(r'^#EXTINF:\s*(-?\d+)(.*),(.*)$', current_line)
-                if match:
-                    tvg_data = match.group(2).strip()
-                    channel_name = match.group(3).strip()
+            for i in range(len(lines)):
+                line = lines[i].strip()
+                if line.startswith("#EXTINF:"):
+                    # Bereinige alte Gruppen und normalisiere doppelte Leerzeichen
+                    current_line = re.sub(r'group-title="[^"]*"', '', line)
+                    current_line = re.sub(r'\s+', ' ', current_line).strip()
                     
-                    # Generiert das neue standardisierte Format
-                    m3u_lines.append(f'#EXTINF:-1 group-title="{land}" {tvg_data},{channel_name}')
-                else:
-                    # Fallback, falls das Format unerwartet abweicht
-                    m3u_lines.append(f'#EXTINF:-1 group-title="{land}",{line}')
-                
-                # Stream-URL der nächsten Zeile hinzufügen, falls vorhanden
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
-                    if next_line and not next_line.startswith("#"):
-                        m3u_lines.append(next_line)
+                    # RegEx: Trennt die Attribute vom Sendernamen am letzten Komma
+                    match = re.match(r'^#EXTINF:\s*(-?\d+)(.*),(.*)$', current_line)
+                    if match:
+                        tvg_data = match.group(2).strip()
+                        channel_name = match.group(3).strip()
                         
-    except requests.RequestException:
-        # Fehler beim Download einzelner Länder werden wie im Original ignoriert
+                        # VLC-optimierter Aufbau: "Land - " wird in den Namen injiziert
+                        if tvg_data:
+                            m3u_lines.append(f'#EXTINF:-1 group-title="{land}" {tvg_data},{land} - {channel_name}')
+                        else:
+                            m3u_lines.append(f'#EXTINF:-1 group-title="{land}",{land} - {channel_name}')
+                    else:
+                        # Fallback für abweichende Zeilenstrukturen (inkl. VLC-Fix)
+                        m3u_lines.append(f'#EXTINF:-1 group-title="{land}",{land} - {current_line}')
+                    
+                    # Stream-URL der Folgezeile hinzufügen
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        if next_line and not next_line.startswith("#"):
+                            m3u_lines.append(next_line)
+                            
+    except Exception:
+        # Fehler beim Download einzelner Ländernamen stumm überspringen
         pass
 
-# Finale Liste zusammenführen
-final_m3u = "\n".join(m3u_lines)
+# Zusammenfügen der Liste
+final_m3u_string = "\n".join(m3u_lines) + "\n"
 
 # --- FTP UPLOAD ---
 print("Verbinde mit FTP und lade hoch...")
 
 try:
-    # Konvertierung des Strings in ein Byte-Objekt für den Upload ohne lokale Datei
-    file_bytes = final_m3u.encode('utf-8')
-    bio = BytesIO(file_bytes)
+    # FTP-Verbindung initialisieren
+    ftp = ftplib.FTP(FTP_SERVER)
+    ftp.login(user=FTP_USER, passwd=FTP_PASSWORD)
     
-    with FTP(FTP_SERVER) as ftp:
-        ftp.login(user=FTP_USER, passwd=FTP_PASSWORD)
-        # Upload im Binärmodus (storbinary)
-        ftp.storbinary(f"STOR {FILE_NAME}", bio)
-        
+    # String in Bytes konvertieren für den Upload
+    m3u_bytes = final_m3u_string.encode('utf-8')
+    bio = BytesIO(m3u_bytes)
+    
+    # Datei hochladen
+    ftp.storbinary(f'STOR {FILE_NAME}', bio)
+    ftp.quit()
+    
     print("Erfolgreich hochgeladen!")
     print("Deine M3U-URL für die App:")
     print(f"{DOMAIN_URL}/{FILE_NAME}")
-
+    
 except Exception as e:
     print(f"FTP-Upload fehlgeschlagen: {e}")
