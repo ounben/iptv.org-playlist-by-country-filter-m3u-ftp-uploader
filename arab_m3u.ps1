@@ -34,18 +34,35 @@ $countries.Keys | Sort-Object { $countries[$_] } | ForEach-Object {
         
         for ($i = 0; $i -lt $lines.Count; $i++) {
             if ($lines[$i] -like "#EXTINF:*") {
+                # Bereinige alte Gruppen und normalisiere doppelte Leerzeichen
                 $currentLine = $lines[$i].Trim() -replace 'group-title="[^"]*"', '' -replace '\s+', ' '
-                if ($currentLine -match '^#EXTINF:\s*(-?\d+)(.*)$') {
-                    $restOfLine = $Matches[2].Trim() -replace '\s*,\s*', ','
-                    $parts = $restOfLine -Split ','
-                    [void]$m3u.AppendLine("#EXTINF:-1 group-title=`"$land`" $($parts[0]),$($parts[1])")
+                
+                # RegEx: Trennt die Attribute vom Sendernamen am letzten Komma
+                if ($currentLine -match '^#EXTINF:\s*(-?\d+)(.*),(.*)$') {
+                    $tvgData = $Matches[2].Trim()
+                    $channelName = $Matches[3].Trim()
+                    
+                    # VLC-optimierter Aufbau: "Land - " wird in den Namen injiziert
+                    if ($tvgData) {
+                        # Wir behalten group-title für Android, fügen aber "Land - " für VLC hinzu
+                        [void]$m3u.AppendLine("#EXTINF:-1 group-title=`"$land`" $tvgData,$land - $channelName")
+                    } else {
+                        [void]$m3u.AppendLine("#EXTINF:-1 group-title=`"$land`",$land - $channelName")
+                    }
+                } else {
+                    # Fallback für abweichende Zeilenstrukturen (inkl. VLC-Fix)
+                    [void]$m3u.AppendLine("#EXTINF:-1 group-title=`"$land`",$land - $currentLine")
                 }
+                
+                # Stream-URL der Folgezeile hinzufügen
                 if ($i + 1 -lt $lines.Count) {
                     [void]$m3u.AppendLine($lines[$i + 1].Trim())
                 }
             }
         }
-    } catch {}
+    } catch {
+        # Fehler beim Download einzelner Ländernamen stumm überspringen
+    }
 }
 
 # --- FTP UPLOAD ---
