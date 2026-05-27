@@ -10,6 +10,26 @@ An automated script (available in both PowerShell and Python) that fetches count
 * **In-Memory Processing:** Assembles the list directly in memory without writing temporary local files before upload.
 * **Automated Deployment Interface:** Uploads the generated file directly to the web server via FTP.
 
+### VLC Compatibility Notes
+
+Unlike modern IPTV applications that parse M3U files into a relational database, VLC media player treats M3U files as flat, sequential music playlists (inheriting legacy architecture from early winamp-style formats). 
+
+This introduces two technical limitations when parsing IPTV metadata:
+* No Dynamic Tag Fields: VLC's internal C/C++ playlist structures (playlist_item_t) have a fixed set of hardcoded metadata fields (Title, Artist, Album, etc.). Custom or IPTV-specific attributes like group-title, tvg-id, or tvg-logo cannot be mapped to separate UI columns and are completely discarded after parsing.
+* Fragile Tree-View Parser: While VLC can simulate categories via its "Tree View" mode using the group-title attribute, its sequential parser is highly intolerant of syntax irregularities (such as trailing whitespaces before commas). Any parsing error drops the stream into a single root folder.
+
+#### The Solution applied in this Script
+
+To achieve native, column-based sorting inside VLC without breaking compatibility for Android IPTV players, this script injects the country name directly into the stream title using the standard <Artist> - <Title> formatting convention:
+
+Example:
+#EXTINF:-1 group-title="Algerien",Algerien - Channel Name
+
+* For VLC: It automatically maps the country to the Artist (Interpret) column and the channel name to the Title column. Users can simply click the "Artist" column header to get a perfectly sorted, responsive grid.
+* For Android Players: The group-title attribute remains completely intact, allowing native IPTV apps to process categories into their internal SQLite databases as usual.
+* 
+<img width="922" height="961" alt="VLC_Playlist_Country_Filter" src="https://github.com/user-attachments/assets/e0e27cb3-7c2a-4d50-83af-c741f26992be" />
+
 ## Prerequisites
 
 ### For PowerShell
